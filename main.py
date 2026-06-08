@@ -29,18 +29,19 @@ def get_access_token():
     try:
         print(f"[OAuth] CLIENT_ID={CLIENT_ID}")
         print(f"[OAuth] REFRESH_TOKEN={REFRESH_TOKEN[:10] if REFRESH_TOKEN else 'NONE'}...")
-        print(f"[OAuth] CLIENT_SECRET={CLIENT_SECRET[:10] if CLIENT_SECRET else 'NONE'}...")
-        res = requests.post(ALM_OAUTH_URL, data={
-            "grant_type":    "refresh_token",
-            "refresh_token": REFRESH_TOKEN,
-            "client_id":     CLIENT_ID,
-            "client_secret": CLIENT_SECRET
-        })
+
+        res = requests.post(
+            ALM_OAUTH_URL,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            data=f"grant_type=refresh_token&refresh_token={REFRESH_TOKEN}&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}"
+        )
         print(f"[OAuth] Response: {res.status_code} | {res.text}")
         data = res.json()
         if "access_token" not in data:
             raise Exception(f"Token refresh failed: {data}")
-        print(f"[Webhook] ✅ Access token refreshed.")
+        print(f"[OAuth] ✅ Access token refreshed.")
         return data["access_token"]
     except Exception as e:
         raise Exception(f"OAuth error: {str(e)}")
