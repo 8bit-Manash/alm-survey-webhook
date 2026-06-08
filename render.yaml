@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: alm-survey-webhook
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ALM_CLIENT_ID
+        sync: false
+      - key: ALM_CLIENT_SECRET
+        sync: false
+      - key: ALM_REFRESH_TOKEN
+        sync: false
+      - key: SURVEY_LAUNCHER_URL
+        sync: false
