@@ -155,7 +155,9 @@ def health():
 async def alm_webhook(request: Request):
     try:
         body = await request.json()
-        print(f"[Webhook] Received payload: {body}")
+        # Log FULL raw payload so we can see exact structure
+        import json
+        print(f"[Webhook] FULL RAW PAYLOAD: {json.dumps(body, indent=2)}")
 
         # Parse ALM webhook payload
         event   = body.get("event", "")
