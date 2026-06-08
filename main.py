@@ -26,25 +26,19 @@ SURVEY_COURSE_NAME = "Feedback Survey"
 # ─── STEP 1: GET FRESH ACCESS TOKEN ──────────────────────
 # Called fresh on every webhook — no stored token, no expiry issue
 def get_access_token():
-    try:
-        print(f"[OAuth] CLIENT_ID={CLIENT_ID}")
-        print(f"[OAuth] REFRESH_TOKEN={REFRESH_TOKEN[:10] if REFRESH_TOKEN else 'NONE'}...")
-
-        res = requests.post(
-            ALM_OAUTH_URL,
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded"
-            },
-            data=f"grant_type=refresh_token&refresh_token={REFRESH_TOKEN}&client_id={CLIENT_ID}&client_secret={CLIENT_SECRET}"
-        )
-        print(f"[OAuth] Response: {res.status_code} | {res.text}")
-        data = res.json()
-        if "access_token" not in data:
-            raise Exception(f"Token refresh failed: {data}")
-        print(f"[OAuth] ✅ Access token refreshed.")
-        return data["access_token"]
-    except Exception as e:
-        raise Exception(f"OAuth error: {str(e)}")
+    res = requests.post(
+        ALM_OAUTH_URL,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "client_id":     CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "refresh_token": REFRESH_TOKEN,
+        }
+    )
+    data = res.json()
+    if "access_token" not in data:
+        raise Exception(f"Token refresh failed: {data}")
+    return data["access_token"]
 
 
 # ─── STEP 2: FETCH LP NAME FROM ALM API ──────────────────
