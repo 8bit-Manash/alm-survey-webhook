@@ -8,7 +8,10 @@ app = FastAPI()
 # Allow ALM domain to call this endpoint
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://learningmanager.adobe.com"],
+    allow_origins=[
+        "https://learningmanager.adobe.com",
+        "https://cpcontents.adobe.com"
+    ],
     allow_methods=["GET"],
     allow_headers=["*"],
 )
