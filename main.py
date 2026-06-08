@@ -15,7 +15,7 @@ app.add_middleware(
 
 # ─── CONFIG FROM ENV VARS ─────────────────────────────────
 ALM_BASE_URL       = "https://learningmanager.adobe.com/primeapi/v2"
-ALM_OAUTH_URL      = "https://learningmanager.adobe.com/oauth/token"
+ALM_OAUTH_URL      = "https://learningmanager.adobe.com/oauth/token/refresh"
 CLIENT_ID          = os.environ.get("ALM_CLIENT_ID")
 CLIENT_SECRET      = os.environ.get("ALM_CLIENT_SECRET")
 REFRESH_TOKEN      = os.environ.get("ALM_REFRESH_TOKEN")
@@ -24,21 +24,32 @@ SURVEY_COURSE_NAME = "Feedback Survey"
 
 
 # ─── STEP 1: GET FRESH ACCESS TOKEN ──────────────────────
-# Called fresh on every webhook — no stored token, no expiry issue
 def get_access_token():
-    res = requests.post(
-        ALM_OAUTH_URL,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data={
-            "client_id":     CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
-            "refresh_token": REFRESH_TOKEN,
-        }
-    )
-    data = res.json()
-    if "access_token" not in data:
-        raise Exception(f"Token refresh failed: {data}")
-    return data["access_token"]
+    try:
+        print(f"[OAuth] Refreshing token...")
+        print(f"[OAuth] CLIENT_ID={CLIENT_ID}")
+        print(f"[OAuth] REFRESH_TOKEN={REFRESH_TOKEN[:10] if REFRESH_TOKEN else 'NONE'}...")
+
+        res = requests.post(
+            ALM_OAUTH_URL,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            data={
+                "client_id":     CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "refresh_token": REFRESH_TOKEN,
+            }
+        )
+        data = res.json()
+        print(f"[OAuth] Response: {res.status_code} | {data}")
+
+        if "access_token" not in data:
+            raise Exception(f"Token refresh failed: {data}")
+
+        print(f"[OAuth] ✅ Access token refreshed successfully.")
+        return data["access_token"]
+
+    except Exception as e:
+        raise Exception(f"OAuth error: {str(e)}")
 
 
 # ─── STEP 2: FETCH LP NAME FROM ALM API ──────────────────
@@ -66,7 +77,6 @@ def create_survey_course(token, lp_name, lp_id):
     }
 
     # Placeholder URL — survey fires via ALM JS injection
-    # LP name passed so JS knows which PostHog survey to fire
     encoded_lp   = requests.utils.quote(lp_name)
     launcher_url = f"https://learningmanager.adobe.com?lp_name={encoded_lp}"
 
@@ -198,16 +208,16 @@ async def alm_webhook(request: Request):
             print(f"[Webhook] Missing LP ID. Skipping.")
             return {"status": "skipped", "reason": "missing lo_id"}
 
-        # Get fresh access token — no stored token, no expiry issue
+        # Get fresh access token
         token = get_access_token()
 
-        # Fetch LP name from ALM API using loId
+        # Fetch LP name from ALM API
         lp_name = get_lp_name(token, lo_id)
         if not lp_name:
             print(f"[Webhook] Could not fetch LP name. Using fallback.")
             lp_name = "Learning Path"
 
-        # Create survey course with LP name embedded in URL
+        # Create survey course
         course_id = create_survey_course(token, lp_name, lo_id)
 
         # Attach survey course to LP as last mandatory item
