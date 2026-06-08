@@ -27,9 +27,6 @@ SURVEY_COURSE_NAME = "Feedback Survey"
 def get_access_token():
     try:
         print(f"[OAuth] Refreshing token...")
-        print(f"[OAuth] CLIENT_ID={CLIENT_ID}")
-        print(f"[OAuth] REFRESH_TOKEN={REFRESH_TOKEN[:10] if REFRESH_TOKEN else 'NONE'}...")
-
         res = requests.post(
             ALM_OAUTH_URL,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -40,14 +37,11 @@ def get_access_token():
             }
         )
         data = res.json()
-        print(f"[OAuth] Response: {res.status_code} | {data}")
-
+        print(f"[OAuth] Response: {res.status_code}")
         if "access_token" not in data:
             raise Exception(f"Token refresh failed: {data}")
-
         print(f"[OAuth] ✅ Access token refreshed successfully.")
         return data["access_token"]
-
     except Exception as e:
         raise Exception(f"OAuth error: {str(e)}")
 
@@ -57,7 +51,10 @@ def get_lp_name(token, lp_id):
     try:
         res = requests.get(
             f"{ALM_BASE_URL}/learningObjects/{lp_id}",
-            headers={"Authorization": f"oauth {token}"}
+            headers={
+                "Authorization": f"oauth {token}",
+                "Accept": "application/vnd.api+json"
+            }
         )
         data = res.json()
         metadata = data.get("data", {}).get("attributes", {}).get("localizedMetadata", [])
@@ -70,71 +67,53 @@ def get_lp_name(token, lp_id):
 
 
 # ─── STEP 3: CREATE SURVEY COURSE IN ALM ─────────────────
-def create_survey_course(token, lp_name, lp_id):
+def create_survey_course(token, lp_name):
     headers = {
         "Authorization": f"oauth {token}",
-        "Content-Type":  "application/vnd.api+json"
+        "Content-Type":  "application/vnd.api+json",
+        "Accept":        "application/vnd.api+json"
     }
 
-    # Placeholder URL — survey fires via ALM JS injection
-    encoded_lp   = requests.utils.quote(lp_name)
-    launcher_url = f"https://learningmanager.adobe.com?lp_name={encoded_lp}"
+    # Decide survey type from LP name
+    lp_lower = lp_name.lower()
+    is_assessment = "assessment" in lp_lower or "certification" in lp_lower
+    survey_type = "assessment" if is_assessment else "course"
 
-    # Create course
+    # Create course payload — correct ALM API format
     course_payload = {
         "data": {
             "type": "learningObject",
             "attributes": {
-                "localizedMetadata": [{
-                    "locale":      "en-US",
-                    "name":        SURVEY_COURSE_NAME,
-                    "description": "Feedback survey for this Learning Path."
-                }],
-                "loType": "course",
-                "state":  "Published"
+                "localizedMetadata": [
+                    {
+                        "description": f"PostHog {survey_type} feedback survey for: {lp_name}",
+                        "locale":      "en-US",
+                        "name":        SURVEY_COURSE_NAME
+                    }
+                ],
+                "loType":                  "course",
+                "state":                   "Published",
+                "isSubLoOrderEnforced":    False,
+                "isExternal":              False
             }
         }
     }
 
+    print(f"[Webhook] Creating survey course for LP: {lp_name}")
     res = requests.post(
         f"{ALM_BASE_URL}/learningObjects",
         json=course_payload,
         headers=headers
     )
 
+    print(f"[Webhook] Course creation response: {res.status_code} | {res.text[:500]}")
+
     if res.status_code not in [200, 201]:
         raise Exception(f"Course creation failed: {res.status_code} | {res.text}")
 
-    course_id = res.json()["data"]["id"]
+    course_data = res.json()
+    course_id   = course_data["data"]["id"]
     print(f"[Webhook] ✅ Survey course created: {course_id}")
-
-    # Add activity module to course
-    module_payload = {
-        "data": {
-            "type": "resource",
-            "attributes": {
-                "localizedMetadata": [{
-                    "locale": "en-US",
-                    "name":   SURVEY_COURSE_NAME
-                }],
-                "moduleType":         "activity",
-                "activityType":       "url",
-                "activityUrl":        launcher_url,
-                "completionCriteria": "LEARNER_MARKED"
-            }
-        }
-    }
-
-    res = requests.post(
-        f"{ALM_BASE_URL}/learningObjects/{course_id}/resources",
-        json=module_payload,
-        headers=headers
-    )
-
-    if res.status_code not in [200, 201]:
-        raise Exception(f"Module creation failed: {res.status_code} | {res.text}")
-
-    print(f"[Webhook] ✅ Activity module added to survey course.")
     return course_id
 
 
@@ -142,25 +121,31 @@ def create_survey_course(token, lp_name, lp_id):
 def attach_course_to_lp(token, lp_id, course_id):
     headers = {
         "Authorization": f"oauth {token}",
-        "Content-Type":  "application/vnd.api+json"
+        "Content-Type":  "application/vnd.api+json",
+        "Accept":        "application/vnd.api+json"
     }
 
     payload = {
-        "data": [{
-            "id":   course_id,
-            "type": "learningObject",
-            "attributes": {
-                "isMandatory": True,
-                "order":       9999
+        "data": [
+            {
+                "id":   course_id,
+                "type": "learningObject",
+                "attributes": {
+                    "isMandatory": True,
+                    "order":       9999
+                }
             }
-        }]
+        ]
     }
 
+    print(f"[Webhook] Attaching course {course_id} to LP {lp_id}...")
     res = requests.post(
         f"{ALM_BASE_URL}/learningObjects/{lp_id}/subLOs",
         json=payload,
         headers=headers
     )
+
+    print(f"[Webhook] Attach response: {res.status_code} | {res.text[:500]}")
 
     if res.status_code not in [200, 201]:
         raise Exception(f"Attach to LP failed: {res.status_code} | {res.text}")
@@ -182,12 +167,12 @@ def health():
 async def alm_webhook(request: Request):
     try:
         body = await request.json()
-        print(f"[Webhook] FULL RAW PAYLOAD:\n{json.dumps(body, indent=2)}")
+        print(f"[Webhook] Received payload")
 
         # ALM sends events as array
         events = body.get("events", [])
         if not events:
-            print(f"[Webhook] No events in payload. Skipping.")
+            print(f"[Webhook] No events. Skipping.")
             return {"status": "skipped", "reason": "no events"}
 
         # Process first event
@@ -199,7 +184,7 @@ async def alm_webhook(request: Request):
 
         print(f"[Webhook] Event={event_name} | Type={lo_type} | ID={lo_id}")
 
-        # Only process Learning Path events
+        # Only process Learning Path publish events
         if lo_type != "learningProgram":
             print(f"[Webhook] Not a Learning Path. Skipping.")
             return {"status": "skipped", "reason": "not a learning path"}
@@ -211,16 +196,15 @@ async def alm_webhook(request: Request):
         # Get fresh access token
         token = get_access_token()
 
-        # Fetch LP name from ALM API
+        # Fetch LP name
         lp_name = get_lp_name(token, lo_id)
         if not lp_name:
-            print(f"[Webhook] Could not fetch LP name. Using fallback.")
             lp_name = "Learning Path"
 
         # Create survey course
-        course_id = create_survey_course(token, lp_name, lo_id)
+        course_id = create_survey_course(token, lp_name)
 
-        # Attach survey course to LP as last mandatory item
+        # Attach to LP as last mandatory item
         attach_course_to_lp(token, lo_id, course_id)
 
         return {
@@ -228,7 +212,7 @@ async def alm_webhook(request: Request):
             "lp_id":     lo_id,
             "lp_name":   lp_name,
             "course_id": course_id,
-            "message":   f"Survey course created and attached to: {lp_name}"
+            "message":   f"✅ Survey course created and attached to: {lp_name}"
         }
 
     except Exception as e:
