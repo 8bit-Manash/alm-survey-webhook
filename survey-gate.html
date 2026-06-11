@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feedback Required</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 48px 40px;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    }
+
+    .icon { font-size: 48px; margin-bottom: 20px; }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 600;
+      color: #111827;
+      margin-bottom: 12px;
+    }
+
+    p {
+      font-size: 15px;
+      color: #4b5563;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 13px 28px;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      text-decoration: none;
+      transition: opacity 0.15s;
+      margin: 6px;
+    }
+
+    .btn:hover { opacity: 0.85; }
+
+    .btn-primary {
+      background: #0078d4;
+      color: #ffffff;
+    }
+
+    .btn-success {
+      background: #065f46;
+      color: #ffffff;
+      display: none;
+    }
+
+    .status {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #6b7280;
+    }
+
+    .status.done {
+      color: #065f46;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="icon">📋</div>
+  <h1>One last step!</h1>
+  <p>
+    Please complete the short feedback survey to finish this
+    Learning Path and unlock your badge and certificate.
+  </p>
+
+  <!-- Survey button — always visible -->
+  <a id="survey-btn" class="btn btn-primary" href="#" target="_blank">
+    Take the feedback survey
+  </a>
+
+  <br>
+
+  <!-- Complete button — hidden until survey submitted -->
+  <button id="complete-btn" class="btn btn-success" onclick="markComplete()">
+    ✓ Mark Learning Path Complete
+  </button>
+
+  <div id="status" class="status">
+    Waiting for survey submission...
+  </div>
+</div>
+
+<script>
+  // ── Read params from URL ──────────────────────────────
+  var params  = new URLSearchParams(window.location.search);
+  var userId  = params.get('userId')   || '';
+  var lpId    = params.get('lpId')     || '';
+  var surveyId = params.get('surveyId') || '';
+
+  // PostHog hosted survey URL
+  // This works even without the PostHog SDK loaded
+  var POSTHOG_HOST = 'https://us.posthog.com';
+
+  if (surveyId) {
+    var surveyUrl = POSTHOG_HOST + '/external_surveys/' + surveyId
+                  + '?distinct_id=' + encodeURIComponent(userId)
+                  + '&lp_id='       + encodeURIComponent(lpId);
+    document.getElementById('survey-btn').href = surveyUrl;
+  }
+
+  // ── Listen for survey completion signal ───────────────
+  // Our main ALM JS sends this message after survey submitted
+  window.addEventListener('message', function(e) {
+    if (e.data && e.data.type === 'SURVEY_COMPLETED') {
+      showCompleteButton();
+    }
+  });
+
+  // ── Also poll localStorage directly ──────────────────
+  // Fallback in case postMessage doesn't reach the iframe
+  function checkLocalStorage() {
+    if (!userId || !lpId) return;
+    var key = 'alm_sv_' + userId + '_' + lpId.replace(/[^a-zA-Z0-9]/g, '_');
+    var status = localStorage.getItem(key);
+    if (status === 'completed') {
+      showCompleteButton();
+    }
+  }
+
+  // Check every 2 seconds
+  var poller = setInterval(function() {
+    checkLocalStorage();
+  }, 2000);
+
+  function showCompleteButton() {
+    clearInterval(poller);
+    document.getElementById('complete-btn').style.display = 'inline-block';
+    document.getElementById('status').textContent = '✓ Survey submitted! Click below to complete your Learning Path.';
+    document.getElementById('status').className = 'status done';
+  }
+
+  function markComplete() {
+    document.getElementById('complete-btn').disabled = true;
+    document.getElementById('complete-btn').textContent = 'Completing...';
+    document.getElementById('status').textContent = 'Marking Learning Path as complete...';
+
+    // Tell ALM Fluidic Player this module is done
+    if (window.parent) {
+      window.parent.postMessage('MARK_COMPLETE', '*');
+    }
+
+    // Also try SCORM completion API
+    setTimeout(function() {
+      document.getElementById('status').textContent = '✓ Done! Your badge is now available.';
+      document.getElementById('complete-btn').textContent = '✓ Completed';
+    }, 1500);
+  }
+</script>
+
+</body>
+</html>
